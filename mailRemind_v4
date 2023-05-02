@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+#coding: latin-1
+
+import os, sys
+sys.path.insert(0,"/usr/lib/python2.7/site-packages")
+import re
+import pymysql
+import datetime
+import cryptography
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from subprocess import Popen, PIPE
+
+print(sys.version)
+print()
+def name_cut(user_lange):										# Es wird vom lange Zelldaten Username gekriegt. 'Vorname Nachname'
+    name = ''
+    text = re.split('/',user_lange)
+    #print('text  variable:', text)
+    text1 = str(text[-1:])
+    text3=  text1[5:-2]
+    text4 = re.split(',',text3)
+    text5 = str(text4[1].strip()), str(text4[0])
+    for word in text5:
+        name += word + ' '
+    return name
+
+def listToString(s): 											# Hier wird von List String gemacht
+    str1 = "" 
+    for ele in s: 
+        str1 += ele
+    return str1
+
+def listToStr_newL(raw):
+    str_raw = ''
+    for i in raw:
+        str_raw += i +'\n'
+    print(str_raw)
+
+con = pymysql.connect('localhost', 'UserName', 'Pass**word', '3rd****Party')			# Zugriff auf MySQL Server
+
+vlxticketid     = []
+user            = []
+ziel            = []
+anwendung       = []
+endtime		= []
+unsubscribed    = []
+
+NoMailReminder  = []
+
+test = []
+
+try:
+    with con.cursor() as cur:                                                                          # Enabler daten vom MySQL
+	cur.execute("select vlxticketid,user,anwendung,ziel,endtime from 3rdParty.access_policy where (endtime > CURDATE()+INTERVAL 30 DAY and endtime < CURDATE()+INTERVAL 68 DAY) AND basicname LIKE '%BATCH%';")
+        rows = cur.fetchall()
+        for row in rows:
+                vlxticketid.append(row[0])
+                user.append(row[1])
+                anwendung.append(row[2])
+                ziel.append(row[3])
+		endtime.append(str(row[4]))
+	
+    with con.cursor() as cur:	                                                                       # Mailreminder daten vom MySQL
+	cur.execute('select eMail from 3rdParty.Enabler_Viewer where MailReminderOK = 0;')
+        rows = cur.fetchall()
+        for row in rows:
+		NoMailReminder.append(row[0])	
+
+finally:
+    con.close()
+
+print('NoMailReminder -> Liste von Enablers OHNE Abonierung:\n')
+print(NoMailReminder)
+print
+
+print('So viel Zeilen sind im query: ',len(user)) 							# Es zeigt, ob wie viele Elementen sind in einer Reihe
+i = 0
+
+send_collect  = []											# Hier wird die Mail usw. gesammelt
+send_collect1 = [] 
+
+while i < len(ziel):
+	if vlxticketid[i] not in send_collect:
+                send_collect.append(vlxticketid[i])
+		send_collect.append(user[i])
+		send_collect.append(anwendung[i])
+		send_collect.append(ziel[i])
+		send_collect.append(endtime[i])
+	else:
+		if user[i] not in send_collect:
+			send_collect.append(vlxticketid[i])
+			send_collect.append(user[i])
+			send_collect.append(anwendung[i])
+			send_collect.append(ziel[i])
+			send_collect.append(endtime[i])
+		else:
+			if anwendung[i] not in send_collect:
+				send_collect.append(vlxticketid[i])
+                        	send_collect.append(user[i])
+                        	send_collect.append(anwendung[i])
+				send_collect.append(ziel[i])
+				send_collect.append(endtime[i])
+			else:
+				volltext = ''
+				volltext = listToString(send_collect)
+                                #print 'Das ist volltext von sendcollect',i,volltext
+				teiltext = ''		
+				vlx = listToString(vlxticketid[i])
+				usr = listToString(user[i])
+				anw = listToString(anwendung[i])
+				teiltext = vlx + usr + anw #+ zil
+				#print '                 Teiltext i:',i, teiltext
+				if teiltext not in volltext:
+	                		send_collect.append(listToString(vlxticketid[i:i+1]))
+                                	send_collect.append(listToString(user[i:i+1]))
+                                	send_collect.append(listToString(anwendung[i:i+1]))
+					send_collect.append(listToString(ziel[i:i+1]))
+					send_collect.append(listToString(endtime[i:i+1]))
+				else:
+					print 'Teiltext ist Gefunden'
+	i += 1
+
+print()
+print('Die Sammlung ist:    ',send_collect[::5])							# Diese Liste enthält die ausgewählte Users mit allen Daten
+print
+
+i = 0
+while i < len(NoMailReminder):										# Entfernenen die nicht abonnierte Enablers
+    print(i)
+    while NoMailReminder[i] in send_collect: 
+        ind = send_collect.index(NoMailReminder[i])
+        print('index', ind)
+        del send_collect[ind:ind+5]
+    i += 1
+print(send_collect)
+
+print()
+print('Die Sammlung ist (- ohne ABO):    ',send_collect[::5])
+print()
+
+print 'send_collect volle Liste', send_collect, '\n' 
+
+fname = "enabler_test.html"
+
+
+i = 0													# Wird unique Anwendungen und Enablers ausgewählt
+uniq_anw = []
+while i < len(send_collect):
+    if send_collect[i+2] not in uniq_anw:
+        uniq_anw.append(send_collect[i+2])
+
+    # print(send_collect[i+2])
+    i += 5
+print 'Uniq Anwendungen',uniq_anw
+i = 0
+uniq_enab = []
+while i < len(send_collect):
+    if send_collect[i] not in uniq_enab:
+        uniq_enab.append(send_collect[i])
+    # print(send_collect[i+2])
+    i += 5
+print 'Uniq Enablers',uniq_enab,'\n'
+
+#mail_anw = []
+#mail_user= []
+
+print
+i = 0
+while i < len(send_collect):										# Mail Versand
+	#print 'vlxticketid   ' ,send_collect[i]
+	#print 'user          ' ,send_collect[i+1]
+	#print 'anwendung     ' ,send_collect[i+2]
+	#print 'ziel          ' ,send_collect[i+3]
+	#print 'endtime       ' ,send_collect[i+4]
+	name = name_cut(send_collect[i+1])
+	#print 'name          ', name
+	
+	an = send_collect[i]
+	print
+
+	
+	mail_anw = []
+	mail_user= []
+	if an in uniq_enab:
+		print "uniq_enab wurde gefunden"
+		z = 0
+		while z < len(send_collect):
+			#print send_collect[z], an
+			if send_collect[z] == an:
+        	        	mail_user.append(name_cut(send_collect[z+1]))
+                	        mail_anw.append(send_collect[z+2])
+				#print 'Uniq Enablers',uniq_enab,'\n'
+				#uniq_enab.remove(an)
+				#print 'an   ', an
+				#print 'mail_user ', mail_user
+				#print 'mail_anw ', mail_anw
+			else:
+				pass
+			z += 1  			 
+#else:
+#	print 'nem egyezik'
+	
+	#print 'mail_user ',listToStr_newL(mail_user)
+	#print 'mail_anw ', listToStr_newL(mail_anw)
+
+
+
+	tomail = [an]
+	subject = []
+
+	fh = open(fname)
+	imp = fh.read()
+
+	#imp = imp.format(name, send_collect[i+2],name, send_collect[i+2])   ez a régi
+        imp = imp.format(mail_user, listToStr_newL(mail_anw), mail_user, listToStr_newL(mail_anw))
+
+	html =  MIMEText(imp, "html")
+	msg = MIMEMultipart("alternative")
+
+	msg["From"] = "3rdPartyAccess@telekom.de"
+	msg["To"] = tomail[0]
+	msg["Subject"] = "Enabler Freigaben werden in 5 Tagen  ablaufen / Access rights expire in 5 days."
+
+	msg.attach(html)
+
+	p = Popen(["/usr/sbin/sendmail", "-t"], stdin=PIPE)
+	p.communicate(msg.as_string())
+
+	i += 5							# i soll 5 sein, wenn 5 Element gehört zum Enabler 
