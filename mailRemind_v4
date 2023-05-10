@@ -199,12 +199,8 @@ while i < len(send_collect):										# Mail Versand
 				pass
 			z += 1  			 
 #else:
-#	print 'nem egyezik'
-	
 	#print 'mail_user ',listToStr_newL(mail_user)
 	#print 'mail_anw ', listToStr_newL(mail_anw)
-
-
 
 	tomail = [an]
 	subject = []
